@@ -71,3 +71,49 @@ def webhooks_v2(request):
         WEBHOOK_MAP[event_key].send(sender=None, full_json=event_json)
 
     return HttpResponse(status=200)
+
+@login_required  # Need a login page that knows how to handle redirect
+def connect_redirect(request):
+    # User should likely not need to wait for this to happen..
+    opener = urllib2.build_opener()
+    opener.addheaders = [('Authorization',
+                          'Bearer %s' % settings.STRIPE_API_KEY)]
+    post_data = {}
+    post_data['code'] = request.GET['code']
+    post_data['grant_type'] = 'authorization_code'
+    result = opener.open('https://connect.stripe.com/oauth/token',
+        urllib.urlencode(post_data))
+    # Contains
+    #   token_type
+    #   scope
+    #   refresh_token
+    #   stripe_user_id
+    #   stripe_publishable_key
+    #   access_token
+    # Need to store stripe_user_id with the user
+    # and access_token to be able to pay them
+    data = json.loads(result.read())
+
+    stripe_user, created =\
+    ConnectProfile.objects.get_or_create(user=request.user)
+
+    stripe_user.stripe_id = data['stripe_user_id']
+    stripe_user.access_token = data['access_token']
+    stripe_user.save()
+
+    #charge = stripe.Charge.create(
+    #amount=400,
+    #currency='usd',
+    #api_key=data['access_token'],
+    #)
+
+    # Customers should get saved to _our_ stripe account and
+    # not those Connect accounts, that way they can be re-used
+
+    #stripe.api_key = settings.STRIPE_API_KEY
+    #token = request.POST['stripeToken']
+    #customer = stripe.Customer.create(
+    #card = token,
+    #)
+
+    return TemplateResponse(request, 'stripe_connect/index.html', {})
